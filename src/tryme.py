@@ -5,14 +5,17 @@ import arcpy
 import akeyaa
 import geometry
 
+LOCATION = r"D:\Google Drive\Projects\AkeyaaGIS\data"
+
+
 
 def main():
-    out_table = r"D:\Google Drive\Projects\AkeyaaGIS\data\DakotaResults"
+    out_table = LOCATION + r"\DakotaResults"
 
-    vertices = np.loadtxt(r"data\DakotaPolygon.csv", delimiter=",")
+    vertices = np.loadtxt(LOCATION + r"\DakotaPolygon.csv", delimiter=",")
     polygon = geometry.Polygon(vertices)
 
-    xyz = np.loadtxt(r"data\DakotaWells.csv", delimiter=",")
+    xyz = np.loadtxt(LOCATION + r"\DakotaWells.csv", delimiter=",")
 
     in_array = akeyaa.akeyaa(polygon, xyz, radius=3000, required=25, spacing=1000)
 
