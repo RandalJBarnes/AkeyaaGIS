@@ -7,8 +7,6 @@ import numpy as np
 import scipy
 import statsmodels.api as sm
 
-import arcpy
-
 import pnorm
 
 
@@ -18,12 +16,10 @@ def akeyaa(polygon, xyz, radius, required, spacing):
 
 
     """
-
-
     results = analyze(polygon, xyz, radius, required, spacing)
+    output_array = collate_results(results)
 
-    collate_results(results)
-
+    return output_array
 
 
 # -----------------------------------------------------------------------------
@@ -63,7 +59,7 @@ def analyze(venue, xyz, radius, required, spacing):
 
         if len(wells) >= required:
             evp, varp = fit_conic_potential(xytarget, wells)
-            results.append((xytarget, len(xyz), evp, varp))
+            results.append((xytarget, len(wells), evp, varp))
 
     return results
 
@@ -155,9 +151,9 @@ def fit_conic_potential(xytarget, xyz):
     where the fitted parameters map as: [A, B, C, D, E, F] = p[0:5].
 
     """
-    x = np.array([row[0][0] for row in xyz], dtype=float) - xytarget[0]
-    y = np.array([row[0][1] for row in xyz], dtype=float) - xytarget[1]
-    z = np.array([row[1] for row in xyz], dtype=float) * 0.0348     # [ft] to [m].
+    x = np.array([row[0] for row in xyz], dtype=float) - xytarget[0]
+    y = np.array([row[1] for row in xyz], dtype=float) - xytarget[1]
+    z = np.array([row[2] for row in xyz], dtype=float) * 0.3048         # [ft] to [m].
 
     exog = np.stack([x**2, y**2, x*y, x, y, np.ones(x.shape)], axis=1)
 
@@ -174,6 +170,10 @@ def fit_conic_potential(xytarget, xyz):
 def collate_results(results):
     """Collate the interpreted results.
 
+    Returns
+    -------
+    structured array
+
     Notes
     -----
     The underlying conic potential model is
@@ -184,66 +184,47 @@ def collate_results(results):
 
     """
 
-    # Locations.
-    xtarget = np.array([row[0][0] for row in results])
-    ytarget = np.array([row[0][1] for row in results])
-
-    # Number of neighbors.
-    number_of_neighbors = np.array([row[1] for row in results], dtype=int)
-
-    # Local head.
-    local_head = np.empty(xtarget.shape)
-
-    for i, row in enumerate(results):
-        evp = row[2]
-        local_head[i] = 3.28084 * evp[5]            # convert [m] to [ft].
-
-    # Local flow direction.
-    local_ux = np.empty(xtarget.shape)
-    local_uy = np.empty(xtarget.shape)
-    local_p10 = np.empty(xtarget.shape)
+    output_array = np.empty(len(results),
+        dtype = [
+            ("x", np.float),
+            ("y", np.float),
+            ("count", np.int),
+            ("head", np.float),
+            ("ux", np.float),
+            ("uy", np.float),
+            ("p10", np.float),
+            ("grad", np.float),
+            ("score", np.float)
+        ]
+    )
 
     for i, row in enumerate(results):
         evp = row[2]
         varp = row[3]
+
+        x = row[0][0]
+        y = row[0][1]
+
+        count = row[1]
+
+        head = 3.28084 * evp[5]                 # convert [m] to [ft].
+
         mu = evp[3:5]
         sigma = varp[3:5, 3:5]
+        ux = -mu[0] / np.hypot(mu[0], mu[1])
+        uy = -mu[1] / np.hypot(mu[0], mu[1])
 
-        local_ux[i] = -mu[0] / np.hypot(mu[0], mu[1])
-        local_uy[i] = -mu[1] / np.hypot(mu[0], mu[1])
-
-        theta = math.atan2(mu[1], mu[0])
-        lowerbound = theta - np.pi / 18.0
+        theta = math.atan2(mu[1], mu[0])        # angle <from>, not angle <to>.
+        lowerbound = theta - np.pi / 18.0       # +/- 10 degrees.
         upperbound = theta + np.pi / 18.0
-        local_p10[i] = pnorm.cdf(lowerbound, upperbound, mu, sigma)
+        p10 = pnorm.cdf(lowerbound, upperbound, mu, sigma)
 
-    # Magnitude of the local head gradient.
-    local_gradient = np.empty(xtarget.shape)
-
-    for i, row in enumerate(results):
-        evp = row[2]
-        mu = evp[3:5]
-        local_gradient[i] = np.hypot(mu[0], mu[1])
-
-    # Local laplacian zscore.
-    local_score = np.empty(xtarget.shape)
-
-    for i, row in enumerate(results):
-        evp = row[2]
-        varp = row[3]
+        grad = np.hypot(mu[0], mu[1])
 
         laplacian = 2*(evp[0]+evp[1])
         stdev = 2*np.sqrt(varp[0, 0] + varp[1, 1] + 2*varp[0, 1])
-        local_score[i] = min(max(laplacian/stdev, -3), 3)
+        score = min(max(laplacian/stdev, -3), 3)
 
-    return (
-        xtarget,
-        ytarget,
-        number_of_neighbors,
-        local_head,
-        local_ux,
-        local_uy,
-        local_p10,
-        local_gradient,
-        local_score
-    )
+        output_array[i] = (x, y, count, head, ux, uy, p10, grad, score)
+
+    return output_array

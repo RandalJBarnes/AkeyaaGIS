@@ -133,6 +133,8 @@ def cdf(lowerbound, upperbound, mu, sigma):
         value = quad(lambda theta: pdf(theta, mu, sigma), lowerbound, upperbound)[0]
     except OverflowError:
         value = 1.0
+    except ValueError:
+        value = 1.0
     except:
         raise
 
