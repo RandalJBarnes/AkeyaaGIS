@@ -69,9 +69,7 @@ def analyze(venue, welldata, radius, required, spacing):
             evp, varp = fit_conic_potential(xytarget, xyz)
             results.append((xytarget, len(xyz), evp, varp))
 
-    output_array = collate_results(results)
-
-    return output_array
+    return collate_results(results)
 
 
 # -----------------------------------------------------------------------------
@@ -212,7 +210,6 @@ def collate_results(results):
         ("score", np.float)
 
     """
-
     output_array = np.empty(
         len(results),
         dtype=[

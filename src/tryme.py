@@ -17,16 +17,16 @@ def main():
 
     xyz = np.loadtxt(LOCATION + r"\DakotaWells.csv", delimiter=",")
 
-    in_array = akeyaa.analyze(polygon, xyz, radius=3000, required=25, spacing=1000)
+    out_array = akeyaa.analyze(polygon, xyz, radius=3000, required=25, spacing=1000)
 
     arcpy.da.NumPyArrayToFeatureClass(
-        in_array,
+        out_array,
         out_table,
         ("x", "y"),
         arcpy.SpatialReference(26915)       # NAD 83 UTM zone 15N (EPSG:26915).
     )
 
-    return in_array
+    return out_array
 
 
 # -----------------------------------------------------------------------------
