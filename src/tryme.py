@@ -17,7 +17,7 @@ def main():
 
     xyz = np.loadtxt(LOCATION + r"\DakotaWells.csv", delimiter=",")
 
-    in_array = akeyaa.akeyaa(polygon, xyz, radius=3000, required=25, spacing=1000)
+    in_array = akeyaa.analyze(polygon, xyz, radius=3000, required=25, spacing=1000)
 
     arcpy.da.NumPyArrayToFeatureClass(
         in_array,

@@ -11,57 +11,67 @@ import pnorm
 
 
 # -----------------------------------------------------------------------------
-def akeyaa(polygon, xyz, radius, required, spacing):
-    """Fit the conic discharge potential model.
-
-
-    """
-    results = analyze(polygon, xyz, radius, required, spacing)
-    output_array = collate_results(results)
-
-    return output_array
-
-
-# -----------------------------------------------------------------------------
-def analyze(venue, xyz, radius, required, spacing):
-    """Compute the Akeyaa analysis across the specified venue.
+def analyze(venue, welldata, radius, required, spacing):
+    """Compute the Akeyaa analysis at locations across the specified venue.
 
     Parameters
     ----------
-    venue: type
+    venue : a concrete instance of a geometry.Shape, e.g. Polygon. We are
+        using the following methods: centroid, extent, and contains_points.
 
+    welldata : array, shape=(n, 3), dtype=float
+        well data: x- and y- locations [m], and the measured static water
+        level [ft]. A well may have more than one entry, if it has more than
+        one measured static water level.
+
+    radius : float
+        Search radius for neighboring wells. radius >= 1.
+
+    required : int
+        Required number of neighboring wells. If fewer are found, the
+        target location is skipped. required >= 6.
+
+    spacing : float
+        Grid spacing for target locations across the venue. The grid is
+        square, so only one `spacing` is needed. spacing >= 1.
 
     Returns
     -------
-    results : list[tuple] (xytarget, n, evp, varp)
+    structured array
+        ("x", np.float),
+        ("y", np.float),
+        ("count", np.int),
+        ("head", np.float),
+        ("ux", np.float),
+        ("uy", np.float),
+        ("p10", np.float),
+        ("grad", np.float),
+        ("score", np.float)
 
-        xytarget : tuple (float, float)
-            x- and y-coordinates of target location.
-        n : int
-            number of naerby wells used in the local analysis.
-        evp : (6, 1) ndarray
-            expected value vector of the model parameters.
-        varp : (6, 6) ndarray
-            variance/covariance matrix of the model parameters.
+    See Also
+    --------
+    geometry.py, pnorm.py
 
     """
-    tree = scipy.spatial.cKDTree([(row[0], row[1]) for row in xyz])
+    tree = scipy.spatial.cKDTree([(row[0], row[1]) for row in welldata])
     targets = layout_the_targets(venue, spacing)
 
     results = []
     for xytarget in targets:
 
-        wells = []
+        xyz = []
         indx = tree.query_ball_point(xytarget, radius)
         if indx:
             for i in indx:
-                wells.append(xyz[i])
+                xyz.append(welldata[i])
 
-        if len(wells) >= required:
-            evp, varp = fit_conic_potential(xytarget, wells)
-            results.append((xytarget, len(wells), evp, varp))
+        if len(xyz) >= required:
+            evp, varp = fit_conic_potential(xytarget, xyz)
+            results.append((xytarget, len(xyz), evp, varp))
 
-    return results
+    output_array = collate_results(results)
+
+    return output_array
 
 
 # -----------------------------------------------------------------------------
@@ -77,7 +87,7 @@ def layout_the_targets(venue, spacing):
 
     Parameters
     ----------
-    venue: polygon
+    venue : a concrete instance of a geometry.Shape.
 
     spacing : float
         Grid spacing for target locations across the venue. The grid is
@@ -87,7 +97,6 @@ def layout_the_targets(venue, spacing):
     -------
     targets : list[tuple] (xtarget, ytarget)
         x- and y-coordinates of the target points.
-
 
     """
     xgrd = [venue.centroid()[0]]
@@ -123,10 +132,12 @@ def fit_conic_potential(xytarget, xyz):
         The x- and y-coordinates in "NAD 83 UTM 15N" (EPSG:26915) [m] of
         the target location.
 
-    list[tuple] : ((x, y), z)
+    list[tuple] : (x, y, z)
 
-        (x, y) : tuple(float, float)
-            The x- and y-coordinates in "NAD 83 UTM 15N" (EPSG:26915) [m].
+        x : The x-coordinates in "NAD 83 UTM 15N" (EPSG:26915) [m].
+
+        y : The y-coordinates in "NAD 83 UTM 15N" (EPSG:26915) [m].
+
         z : float
             The recorded static water level [ft]
 
@@ -144,11 +155,15 @@ def fit_conic_potential(xytarget, xyz):
 
     Notes
     -----
-    The underlying conic potential model is
+    *   The local conic potential model is computed using a robust linear
+        model which is fit using iteratively reweighted least squares with
+        Tukey biweights.
 
-        z = Ax^2 + By^2 + Cxy + Dx + Ey + F + noise
+    *   The underlying conic potential model is
 
-    where the fitted parameters map as: [A, B, C, D, E, F] = p[0:5].
+            z = Ax^2 + By^2 + Cxy + Dx + Ey + F + noise
+
+        where the fitted parameters map as: [A, B, C, D, E, F] = p[0:5].
 
     """
     x = np.array([row[0] for row in xyz], dtype=float) - xytarget[0]
@@ -170,22 +185,37 @@ def fit_conic_potential(xytarget, xyz):
 def collate_results(results):
     """Collate the interpreted results.
 
+    Parameters
+    ----------
+    results : list[tuple] (xytarget, n, evp, varp)
+
+        xytarget : tuple (float, float)
+            x- and y-coordinates of target location.
+        n : int
+            number of naerby wells used in the local analysis.
+        evp : (6, 1) ndarray
+            expected value vector of the model parameters.
+        varp : (6, 6) ndarray
+            variance/covariance matrix of the model parameters.
+
     Returns
     -------
     structured array
-
-    Notes
-    -----
-    The underlying conic potential model is
-
-        z = Ax^2 + By^2 + Cxy + Dx + Ey + F + noise
-
-    where the fitted parameters map as: [A, B, C, D, E, F] = p[0:5].
+        ("x", np.float),
+        ("y", np.float),
+        ("count", np.int),
+        ("head", np.float),
+        ("ux", np.float),
+        ("uy", np.float),
+        ("p10", np.float),
+        ("grad", np.float),
+        ("score", np.float)
 
     """
 
-    output_array = np.empty(len(results),
-        dtype = [
+    output_array = np.empty(
+        len(results),
+        dtype=[
             ("x", np.float),
             ("y", np.float),
             ("count", np.int),
@@ -199,27 +229,27 @@ def collate_results(results):
     )
 
     for i, row in enumerate(results):
-        evp = row[2]
-        varp = row[3]
+        evp = row[2]                            # expected value vector
+        varp = row[3]                           # variance/covariance matrix
 
-        x = row[0][0]
+        x = row[0][0]                           # NAD 83 UTM zone 15N
         y = row[0][1]
 
-        count = row[1]
+        count = row[1]                          # number of neighbors
 
         head = 3.28084 * evp[5]                 # convert [m] to [ft].
 
         mu = evp[3:5]
         sigma = varp[3:5, 3:5]
-        ux = -mu[0] / np.hypot(mu[0], mu[1])
-        uy = -mu[1] / np.hypot(mu[0], mu[1])
+        ux = -mu[0] / np.hypot(mu[0], mu[1])    # x-component of unit vector
+        uy = -mu[1] / np.hypot(mu[0], mu[1])    # y-component of unit vector
 
         theta = math.atan2(mu[1], mu[0])        # angle <from>, not angle <to>.
         lowerbound = theta - np.pi / 18.0       # +/- 10 degrees.
         upperbound = theta + np.pi / 18.0
         p10 = pnorm.cdf(lowerbound, upperbound, mu, sigma)
 
-        grad = np.hypot(mu[0], mu[1])
+        grad = np.hypot(mu[0], mu[1])           # magnitude of the head gradient
 
         laplacian = 2*(evp[0]+evp[1])
         stdev = 2*np.sqrt(varp[0, 0] + varp[1, 1] + 2*varp[0, 1])
