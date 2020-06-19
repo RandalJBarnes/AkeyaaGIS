@@ -3,6 +3,9 @@ import numpy as np
 
 import pnorm
 
+__author__ = "Randal J Barnes"
+__version__ = "18 June 2020"
+
 
 def test_pnorm_pdf():
     """Test pnormpdf by comparing with MATLAB results."""

@@ -1,23 +1,23 @@
 """AkeyaaGIS entry point."""
-
-from itertools import compress
 import math
-
 import numpy as np
 import scipy
 import statsmodels.api as sm
-
+import arcpy
 import pnorm
 
 
+__author__ = "Randal J Barnes"
+__version__ = "19 June 2020"
+
+
 # -----------------------------------------------------------------------------
-def analyze(venue, welldata, radius, required, spacing):
-    """Compute the Akeyaa analysis at locations across the specified venue.
+def analyze(polygon, welldata, radius, required, spacing):
+    """Compute the Akeyaa analysis at locations across the specified polygon.
 
     Parameters
     ----------
-    venue : a concrete instance of a geometry.Shape, e.g. Polygon. We are
-        using the following methods: centroid, extent, and contains_points.
+    polygon : arcpy.Polygon
 
     welldata : array, shape=(n, 3), dtype=float
         well data: x- and y- locations [m], and the measured static water
@@ -32,38 +32,36 @@ def analyze(venue, welldata, radius, required, spacing):
         target location is skipped. required >= 6.
 
     spacing : float
-        Grid spacing for target locations across the venue. The grid is
+        Grid spacing for target locations across the polygon. The grid is
         square, so only one `spacing` is needed. spacing >= 1.
 
     Returns
     -------
-    structured array
-        ("x", np.float),
-        ("y", np.float),
-        ("count", np.int),
-        ("head", np.float),
-        ("ux", np.float),
-        ("uy", np.float),
-        ("p10", np.float),
-        ("grad", np.float),
-        ("score", np.float)
+    structured numpy array : one row for each target location
+
+        ("x", np.float),        Easting (NAD 83 UTM zone 15N) [m]
+        ("y", np.float),        Northing (NAD 83 UTM zone 15N) [m]
+        ("count", np.int),      Number of neighbors [#]
+        ("head", np.float),     Local piezometric head [ft]
+        ("ux", np.float),       x-component of flow unit vector [.]
+        ("uy", np.float),       y-component of flow unit vector [.]
+        ("p10", np.float),      pr(theta within +/- 10 degrees) [.]
+        ("grad", np.float),     Magnitude of the head gradient [.]
+        ("score", np.float)     Laplacian z-score [.]
 
     See Also
     --------
-    geometry.py, pnorm.py
+    pnorm.py
 
     """
     tree = scipy.spatial.cKDTree([(row[0], row[1]) for row in welldata])
-    targets = layout_the_targets(venue, spacing)
 
     results = []
-    for xytarget in targets:
+    for xytarget in layout_the_targets(polygon, spacing):
 
         xyz = []
-        indx = tree.query_ball_point(xytarget, radius)
-        if indx:
-            for i in indx:
-                xyz.append(welldata[i])
+        for i in tree.query_ball_point(xytarget, radius):
+            xyz.append(welldata[i])
 
         if len(xyz) >= required:
             evp, varp = fit_conic_potential(xytarget, xyz)
@@ -73,22 +71,22 @@ def analyze(venue, welldata, radius, required, spacing):
 
 
 # -----------------------------------------------------------------------------
-def layout_the_targets(venue, spacing):
+def layout_the_targets(polygon, spacing):
     """Determine the evenly-spaced locations of the x and y grid lines.
 
     The grid lines of target locations are anchored at the centroid of the
-    `venue`, axes-aligned, and the separated by `spacing`. The outer extent
-    of the grid captures all of the vertices of the `venue`.
+    `polygon`, axes-aligned, and the separated by `spacing`. The outer extent
+    of the grid captures all of the vertices of the `polygon`.
 
-    The grid nodes are then filtered so that only nodes inside of the venue
+    The grid nodes are then filtered so that only nodes inside of the polygon
     are retained.
 
     Parameters
     ----------
-    venue : a concrete instance of a geometry.Shape.
+    polygon : a concrete instance of a geometry.Shape.
 
     spacing : float
-        Grid spacing for target locations across the venue. The grid is
+        Grid spacing for target locations across the polygon. The grid is
         square, so only one `spacing` is needed.
 
     Returns
@@ -97,27 +95,27 @@ def layout_the_targets(venue, spacing):
         x- and y-coordinates of the target points.
 
     """
-    xgrd = [venue.centroid()[0]]
-    while xgrd[-1] > venue.extent()[0]:
+    xgrd = [polygon.centroid.X]
+    while xgrd[-1] > polygon.extent.XMin:
         xgrd.append(xgrd[-1] - spacing)
     xgrd.reverse()
-    while xgrd[-1] < venue.extent()[1]:
+    while xgrd[-1] < polygon.extent.XMax:
         xgrd.append(xgrd[-1] + spacing)
 
-    ygrd = [venue.centroid()[1]]
-    while ygrd[-1] > venue.extent()[2]:
+    ygrd = [polygon.centroid.Y]
+    while ygrd[-1] > polygon.extent.YMin:
         ygrd.append(ygrd[-1] - spacing)
     ygrd.reverse()
-    while ygrd[-1] < venue.extent()[3]:
+    while ygrd[-1] < polygon.extent.YMax:
         ygrd.append(ygrd[-1] + spacing)
 
     xygrd = []
     for x in xgrd:
         for y in ygrd:
-            xygrd.append((x, y))
-    flag = venue.contains_points(xygrd)
+            if polygon.contains(arcpy.Point(x, y)):
+                xygrd.append((x, y))
 
-    return list(compress(xygrd, flag))
+    return xygrd
 
 
 # -----------------------------------------------------------------------------
@@ -198,16 +196,17 @@ def collate_results(results):
 
     Returns
     -------
-    structured array
-        ("x", np.float),
-        ("y", np.float),
-        ("count", np.int),
-        ("head", np.float),
-        ("ux", np.float),
-        ("uy", np.float),
-        ("p10", np.float),
-        ("grad", np.float),
-        ("score", np.float)
+    structured numpy array : one row for each target location
+
+        ("x", np.float),        Easting (NAD 83 UTM zone 15N) [m]
+        ("y", np.float),        Northing (NAD 83 UTM zone 15N) [m]
+        ("count", np.int),      Number of neighbors [#]
+        ("head", np.float),     Local piezometric head [ft]
+        ("ux", np.float),       x-component of flow unit vector [.]
+        ("uy", np.float),       y-component of flow unit vector [.]
+        ("p10", np.float),      pr(theta within +/- 10 degrees) [.]
+        ("grad", np.float),     Magnitude of the head gradient [.]
+        ("score", np.float)     Laplacian z-score [.]
 
     """
     output_array = np.empty(
@@ -226,29 +225,30 @@ def collate_results(results):
     )
 
     for i, row in enumerate(results):
-        evp = row[2]                            # expected value vector
-        varp = row[3]                           # variance/covariance matrix
-
-        x = row[0][0]                           # NAD 83 UTM zone 15N
+        x = row[0][0]
         y = row[0][1]
 
-        count = row[1]                          # number of neighbors
+        count = row[1]
+
+        evp = row[2]
+        varp = row[3]
 
         head = 3.28084 * evp[5]                 # convert [m] to [ft].
 
         mu = evp[3:5]
         sigma = varp[3:5, 3:5]
-        ux = -mu[0] / np.hypot(mu[0], mu[1])    # x-component of unit vector
-        uy = -mu[1] / np.hypot(mu[0], mu[1])    # y-component of unit vector
+
+        ux = -mu[0] / np.hypot(mu[0], mu[1])
+        uy = -mu[1] / np.hypot(mu[0], mu[1])
 
         theta = math.atan2(mu[1], mu[0])        # angle <from>, not angle <to>.
         lowerbound = theta - np.pi / 18.0       # +/- 10 degrees.
         upperbound = theta + np.pi / 18.0
         p10 = pnorm.cdf(lowerbound, upperbound, mu, sigma)
 
-        grad = np.hypot(mu[0], mu[1])           # magnitude of the head gradient
+        grad = np.hypot(mu[0], mu[1])
 
-        laplacian = 2*(evp[0]+evp[1])
+        laplacian = 2*(evp[0]+evp[1])           # Laplacian, not recharge.
         stdev = 2*np.sqrt(varp[0, 0] + varp[1, 1] + 2*varp[0, 1])
         score = min(max(laplacian/stdev, -3), 3)
 

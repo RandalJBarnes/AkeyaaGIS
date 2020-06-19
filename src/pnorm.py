@@ -40,6 +40,10 @@ from scipy.stats import norm
 from scipy.integrate import quad
 
 
+__author__ = "Randal J Barnes"
+__version__ = "18 June 2020"
+
+
 # -----------------------------------------------------------------------------
 def pdf(angles, mu, sigma):
     """General projected normal distribution PDF.

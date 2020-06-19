@@ -1,1 +1,0 @@
-set PYTHONPATH=D:\Google Drive\Projects\AkeyaaGIS\src
