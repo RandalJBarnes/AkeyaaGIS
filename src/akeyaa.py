@@ -6,7 +6,7 @@ import statsmodels.api as sm
 import arcpy
 
 
-__version__ = "24 June 2020"
+__version__ = "26 June 2020"
 
 
 # -----------------------------------------------------------------------------
@@ -106,7 +106,8 @@ def run_akeyaa(polygon, welldata, radius, required, spacing, fc_dest):
         for band in range(7):
             akeyaa_raster[band, index[0], index[1]] = output[band+2]
 
-    akeyaa_raster.bandNames = ["x", "y", "count", "head", "ux", "uy", "p10", "grad", "score"]
+    # ArcGIS will not let us set the bandNames. If we could, they would be:
+    # bandNames = ["count", "head", "ux", "uy", "p10", "grad", "score"]
 
     # Create the feature class output and save it to disk.
     akeyaa_array = np.array(
