@@ -148,12 +148,12 @@ def run_akeyaa(polygon, welldata, radius, required, spacing, base_filename):
 
     for band, name in enumerate(features):
         with open(base_filename + "_" + name + ".hdr", "w") as fid:
-            fid.write(f"NCOLS {len(xgrd)}")
-            fid.write(f"NROWS {len(ygrd)}")
-            fid.write(f"XLLCORNER {min(xgrd)}")
-            fid.write(f"YLLCORNER {min(ygrd)}")
-            fid.write(f"CELLSIZE {spacing}")
-            fid.write(f"NODATA_VALUE {missing}")
+            fid.write(f"NCOLS {len(xgrd)} \n")
+            fid.write(f"NROWS {len(ygrd)} \n")
+            fid.write(f"XLLCORNER {min(xgrd)} \n")
+            fid.write(f"YLLCORNER {min(ygrd)} \n")
+            fid.write(f"CELLSIZE {spacing} \n")
+            fid.write(f"NODATA_VALUE {missing} \n")
             fid.write(f"BYTEORDER {byteorder}")
 
         grid[:] = missing
