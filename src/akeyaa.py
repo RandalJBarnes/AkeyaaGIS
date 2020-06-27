@@ -1,17 +1,40 @@
 """AkeyaaGIS"""
 import math
+import sys
 import numpy as np
 import scipy
 import statsmodels.api as sm
 import arcpy
 
 
-__version__ = "26 June 2020"
+__version__ = "27 June 2020"
 
 
 # -----------------------------------------------------------------------------
-def run_akeyaa(polygon, welldata, radius, required, spacing, fc_dest):
+def run_akeyaa(polygon, welldata, radius, required, spacing, base_filename):
     """Carries out an Akeyaa analysis over the specified polygon.
+
+    In addition to the returned output array, this function creates a suite of
+    output files. All of the output files share a common ``base_filename``,
+    which is passed in as an argument.
+
+    The base_filename can (should) include the necessary path information. This
+    means that all of the files created by this function are pout into a single
+    common folder (directory).
+
+    The feature class files are created by arcpy.da.NumPyArrayToFeatureClass.
+    The associated filenames start with the base_filename, have a suffix "_fc"
+    attached, and end with the ArcGIS-assigned file extension.  These include:
+
+        base_filename_fc.cpg
+        base_filename_fc.dbf
+        base_filename_fc.prj
+        base_filename_fc.shp
+        base_filename_fc.shx
+
+    ESRI GridFloat files are created for each of the feature rasters. There are
+    two files created for each feature: an ASCII .hdr file and a binary .flt
+    file.
 
     Parameters
     ----------
@@ -36,11 +59,8 @@ def run_akeyaa(polygon, welldata, radius, required, spacing, fc_dest):
         Grid spacing for target locations across the polygon. The grid is
         square, so only one `spacing` is needed. spacing >= 1.
 
-    fc_dest : str
-        The destination path for the akeyaa feature class.
-
-    ras_dest : str
-        The destination path for the akkeya multi-band raster.
+    base_filename : str
+        Path and filename prefix for the feature class and ESRI GridFloat files.
 
     Returns
     -------
@@ -61,15 +81,6 @@ def run_akeyaa(polygon, welldata, radius, required, spacing, fc_dest):
             arcgispro >= 2.5  (and all that this entails)
             statsmodels >= 0.11.1
 
-    *   output raster:
-            band[0] = count, number of neighbors [#]
-            band[1] = head, local piezometric head [ft]
-            band[2] = ux, x-component of flow direction unit vector [.]
-            band[3] = uy, y-component of flow direction unit vector [.]
-            band[4] = p10, pr(theta within +/- 10 degrees) [.]
-            band[5] = grad, magnitude of the head gradient [.]
-            band[7] = score, Laplacian z-score [.]
-
     *   output feature class:
             "x"         Easting (NAD 83 UTM zone 15N) [m]
             "y"         Northing (NAD 83 UTM zone 15N) [m]
@@ -83,31 +94,23 @@ def run_akeyaa(polygon, welldata, radius, required, spacing, fc_dest):
 
     Notes
     -----
-    *   The feature class and raster are created using the NAD 83 UTM zone 15N
-        (EPSG:26915) projected coordinate system.
+    *   The feature class and .flt files are created using the NAD 83 UTM
+        zone 15N (EPSG:26915) projected coordinate system. This spatial
+        reference information is encoded in the feature class files, but it is
+        not encoded in the ESRI GridFloat files.
 
-    *   The NoDataValues for the akeyaa raster is math.nan.
+    *   The ESRI GridFloat files use a 32-bit floating point format for the
+        gridded data, not the IEEE 754 format sued throughout python 3. As such,
+        NoDataValues for the ESRI GridFloat files is np.finfo(np.float32).max
+        rather than np.nan.
+
+    *   If we could figure out how to correctly and completely construct, write,
+        and read binary arcpy.Raster files then numerous ESRI GridFloat files
+        would be unnecessary.
 
     """
     xgrd, ygrd, output_list, index_list = analyze(polygon, welldata, radius, required, spacing)
     spatial_reference = arcpy.SpatialReference(26915)  # NAD 83 UTM zone 15N (EPSG:26915).
-
-    # Create the multi-band raster and save it to disk.
-    rasInfo = arcpy.RasterInfo()
-    rasInfo.setSpatialReference(spatial_reference)
-    rasInfo.setBandCount(7)
-    rasInfo.setCellSize((spacing, spacing))
-    rasInfo.setExtent(arcpy.Extent(min(xgrd), min(ygrd), max(xgrd), max(ygrd)))
-    rasInfo.setPixelType("F64")
-    rasInfo.setNoDataValues(float(math.nan))
-    akeyaa_raster = arcpy.Raster(rasInfo)
-
-    for index, output in zip(index_list, output_list):
-        for band in range(7):
-            akeyaa_raster[band, index[0], index[1]] = output[band+2]
-
-    # ArcGIS will not let us set the bandNames. If we could, they would be:
-    # bandNames = ["count", "head", "ux", "uy", "p10", "grad", "score"]
 
     # Create the feature class output and save it to disk.
     akeyaa_array = np.array(
@@ -124,8 +127,43 @@ def run_akeyaa(polygon, welldata, radius, required, spacing, fc_dest):
             ("score", np.float)
         ]
     )
+    arcpy.da.NumPyArrayToFeatureClass(
+        akeyaa_array,
+        base_filename + "_fc",
+        ("x", "y"),
+        spatial_reference
+    )
 
-    return akeyaa_array, akeyaa_raster
+    # Create the ESRI GridFloat files for the feature rasters.
+    features = ["count", "head", "ux", "uy", "p10", "grad", "score"]
+
+    grid = np.empty((len(ygrd), len(xgrd)), dtype=np.float32)
+    missing = np.finfo(np.float32).max
+    if sys.byteorder == 'little':
+        byteorder = "LSBFIRST"
+    elif sys.byteorder == 'big':
+        byteorder = "MSBFIRST"
+    else:
+        raise TypeError
+
+    for band, name in enumerate(features):
+        with open(base_filename + "_" + name + ".hdr", "w") as fid:
+            fid.write(f"NCOLS {len(xgrd)}")
+            fid.write(f"NROWS {len(ygrd)}")
+            fid.write(f"XLLCORNER {min(xgrd)}")
+            fid.write(f"YLLCORNER {min(ygrd)}")
+            fid.write(f"CELLSIZE {spacing}")
+            fid.write(f"NODATA_VALUE {missing}")
+            fid.write(f"BYTEORDER {byteorder}")
+
+        grid[:] = missing
+        for index, output_row in zip(index_list, output_list):
+            grid[index[0], index[1]] = output_row[band + 2]
+
+        with open(base_filename + "_" + name + ".flt", "wb") as fid:
+            grid.tofile(fid)
+
+    return akeyaa_array
 
 
 # -----------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import arcpy
 import akeyaa
 
-__version__ = "24 June 2020"
+__version__ = "27 June 2020"
 
 
 #-------------------------------------------------------------------------------
@@ -21,25 +21,16 @@ CWIGDB = r"D:\Google Drive\CWI\CWI_20200420\water_well_information.gdb"
 # This gdb uses 'NAD 1983 UTM zone 15N' (EPSG:26915).
 CTYGDB = r"D:\Google Drive\GIS\fgdb_bdry_counties_in_minnesota\bdry_counties_in_minnesota.gdb"
 
-# Where to put the feature class files after they are created.
-FC_DEST = r"D:\Google Drive\Projects\AkeyaaGIS\data\DakotaResults"
+# Path and filename prefix for the feature class, .hdr, and .flt files.
+BASE_FILENAME = r"D:\Google Drive\Projects\AkeyaaGIS\data\dakota"
 
 
 # -----------------------------------------------------------------------------
 def main():
     polygon, xyz = get_dakota_county_data()
-    akeyaa_array, akeyaa_raster = akeyaa.run_akeyaa(
-        polygon, xyz, radius=3000, required=25, spacing=1000, fc_dest=FC_DEST
+    akeyaa_array = akeyaa.run_akeyaa(
+        polygon, xyz, radius=3000, required=25, spacing=1000, base_filename=BASE_FILENAME
     )
-
-    # arcpy.da.NumPyArrayToFeatureClass(
-    #     akeyaa_array,
-    #     fc_dest,
-    #     ("x", "y"),
-    #     spatial_reference
-    # )
-
-    return akeyaa_array, akeyaa_raster
 
 
 # -----------------------------------------------------------------------------
