@@ -7,11 +7,11 @@ import statsmodels.api as sm
 import arcpy
 
 
-__version__ = "27 June 2020"
+__version__ = "29 June 2020"
 
 
 # -----------------------------------------------------------------------------
-def run_akeyaa(polygon, welldata, radius, required, spacing, base_filename):
+def run_akeyaa(polygon, welldata, radius, required, spacing, base_filename=None):
     """Carries out an Akeyaa analysis over the specified polygon.
 
     In addition to the returned output array, this function creates a suite of
@@ -59,12 +59,14 @@ def run_akeyaa(polygon, welldata, radius, required, spacing, base_filename):
         Grid spacing for target locations across the polygon. The grid is
         square, so only one `spacing` is needed. spacing >= 1.
 
-    base_filename : str
+    base_filename : str, optional
         Path and filename prefix for the feature class and ESRI GridFloat files.
+        The default is Nonoe. If the base_filename is None then no output files
+        are generated.
 
     Returns
     -------
-    output_array : numpy structured array
+    structured_array : numpy structured array
         ("x", np.float),        Easting (NAD 83 UTM zone 15N) [m]
         ("y", np.float),        Northing (NAD 83 UTM zone 15N) [m]
         ("count", np.int),      Number of neighbors [#]
@@ -110,10 +112,9 @@ def run_akeyaa(polygon, welldata, radius, required, spacing, base_filename):
 
     """
     xgrd, ygrd, output_list, index_list = analyze(polygon, welldata, radius, required, spacing)
-    spatial_reference = arcpy.SpatialReference(26915)  # NAD 83 UTM zone 15N (EPSG:26915).
 
-    # Create the feature class output and save it to disk.
-    akeyaa_array = np.array(
+    # Create the numpy structured array including all features.
+    structured_array = np.array(
         output_list,
         dtype=[
             ("x", np.float),
@@ -127,43 +128,107 @@ def run_akeyaa(polygon, welldata, radius, required, spacing, base_filename):
             ("score", np.float)
         ]
     )
-    arcpy.da.NumPyArrayToFeatureClass(
-        akeyaa_array,
-        base_filename + "_fc",
-        ("x", "y"),
-        spatial_reference
-    )
 
-    # Create the ESRI GridFloat files for the feature rasters.
-    features = ["count", "head", "ux", "uy", "p10", "grad", "score"]
-
-    grid = np.empty((len(ygrd), len(xgrd)), dtype=np.float32)
+    # 32-bit floating point 3D-grid with the band as the last index.
+    grid_a32 = np.empty((len(ygrd), len(xgrd), 2), dtype=np.float32)
     missing = np.finfo(np.float32).max
-    if sys.byteorder == 'little':
-        byteorder = "LSBFIRST"
-    elif sys.byteorder == 'big':
-        byteorder = "MSBFIRST"
-    else:
-        raise TypeError
+    grid_a32[:] = missing
+    for index, output_row in zip(index_list, output_list):
+        grid_a32[index[0], index[1], 0] = output_row[4]
+        grid_a32[index[0], index[1], 1] = output_row[5]
 
-    for band, name in enumerate(features):
-        with open(base_filename + "_" + name + ".hdr", "w") as fid:
-            fid.write(f"NCOLS {len(xgrd)} \n")
-            fid.write(f"NROWS {len(ygrd)} \n")
-            fid.write(f"XLLCORNER {min(xgrd)} \n")
-            fid.write(f"YLLCORNER {min(ygrd)} \n")
-            fid.write(f"CELLSIZE {spacing} \n")
-            fid.write(f"NODATA_VALUE {missing} \n")
-            fid.write(f"BYTEORDER {byteorder}")
+    # 32-bit floating point 3D-grid with the band as the first index.
+    grid_b32 = np.empty((2, len(ygrd), len(xgrd)), dtype=np.float32)
+    missing = np.finfo(np.float32).max
+    grid_b32[:] = missing
+    for index, output_row in zip(index_list, output_list):
+        grid_b32[0, index[0], index[1]] = output_row[4]
+        grid_b32[1, index[0], index[1]] = output_row[5]
 
-        grid[:] = missing
-        for index, output_row in zip(index_list, output_list):
-            grid[index[0], index[1]] = output_row[band + 2]
+    # 64-bit floating point 3D-grid with the band as the last index.
+    grid_a64 = np.empty((len(ygrd), len(xgrd), 2), dtype=np.float)
+    missing = np.nan
+    grid_a64[:] = missing
+    for index, output_row in zip(index_list, output_list):
+        grid_a64[index[0], index[1], 0] = output_row[4]
+        grid_a64[index[0], index[1], 1] = output_row[5]
 
-        with open(base_filename + "_" + name + ".flt", "wb") as fid:
-            grid.tofile(fid)
+    # 64-bit floating point 3D-grid with the band as the last index.
+    grid_b64 = np.empty((2, len(ygrd), len(xgrd)), dtype=np.float)
+    missing = np.nan
+    grid_b64[:] = missing
+    for index, output_row in zip(index_list, output_list):
+        grid_b64[0, index[0], index[1]] = output_row[4]
+        grid_b64[1, index[0], index[1]] = output_row[5]
 
-    return akeyaa_array
+    # 32-bit floating point 2D-grids -- one for ux and another for uy.
+    grid_ux32 = np.empty((len(ygrd), len(xgrd)), dtype=np.float32)
+    grid_uy32 = np.empty((len(ygrd), len(xgrd)), dtype=np.float32)
+    missing = np.finfo(np.float32).max
+    grid_ux32[:] = missing
+    grid_uy32[:] = missing
+    for index, output_row in zip(index_list, output_list):
+        grid_ux32[index[0], index[1]] = output_row[4]
+        grid_uy32[index[0], index[1]] = output_row[5]
+
+    # 64-bit floating point 2D-grids -- one for ux and another for uy.
+    grid_ux64 = np.empty((len(ygrd), len(xgrd)), dtype=np.float)
+    grid_uy64 = np.empty((len(ygrd), len(xgrd)), dtype=np.float)
+    missing = np.nan
+    grid_ux64[:] = missing
+    grid_uy64[:] = missing
+    for index, output_row in zip(index_list, output_list):
+        grid_ux64[index[0], index[1]] = output_row[4]
+        grid_uy64[index[0], index[1]] = output_row[5]
+
+    # ----------------------------------
+    # ONLY IF REQUESTED
+    # ---------------------------------
+    if base_filename is not None:
+        # Create the feature class output files.
+        arcpy.da.NumPyArrayToFeatureClass(
+            structured_array,
+            base_filename + "_fc",
+            ("x", "y"),
+            arcpy.SpatialReference(26915)       # NAD 83 UTM zone 15N (EPSG:26915).
+        )
+
+        # Create the ESRI GridFloat files for the feature rasters.
+        features = ["count", "head", "ux", "uy", "p10", "grad", "score"]
+
+        grid = np.empty((len(ygrd), len(xgrd)), dtype=np.float32)
+        missing = np.finfo(np.float32).max
+        if sys.byteorder == 'little':
+            byteorder = "LSBFIRST"
+        elif sys.byteorder == 'big':
+            byteorder = "MSBFIRST"
+        else:
+            raise TypeError
+
+        for band, name in enumerate(features):
+            with open(base_filename + "_" + name + ".hdr", "w") as fid:
+                fid.write(f"NCOLS {len(xgrd)} \n")
+                fid.write(f"NROWS {len(ygrd)} \n")
+                fid.write(f"XLLCORNER {min(xgrd)} \n")
+                fid.write(f"YLLCORNER {min(ygrd)} \n")
+                fid.write(f"CELLSIZE {spacing} \n")
+                fid.write(f"NODATA_VALUE {missing} \n")
+                fid.write(f"BYTEORDER {byteorder}")
+
+            grid[:] = missing
+            for index, output_row in zip(index_list, output_list):
+                grid[index[0], index[1]] = output_row[band + 2]
+
+            with open(base_filename + "_" + name + ".flt", "wb") as fid:
+                grid.tofile(fid)
+
+    return (
+        structured_array,
+        grid_a32, grid_b32,
+        grid_a64, grid_b64,
+        grid_ux32, grid_uy32,
+        grid_ux64, grid_uy64
+    )
 
 
 # -----------------------------------------------------------------------------

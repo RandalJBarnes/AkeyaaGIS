@@ -28,7 +28,20 @@ BASE_FILENAME = r"D:\Google Drive\Projects\AkeyaaGIS\data\dakota"
 # -----------------------------------------------------------------------------
 def main():
     polygon, xyz = get_dakota_county_data()
-    akeyaa_array = akeyaa.run_akeyaa(
+
+    # grid_a32 = 32-bit floating point 3D-grid with the band as the last index.
+    # grid_b32 = 32-bit floating point 3D-grid with the band as the first index.
+    # grid_a64 = 64-bit floating point 3D-grid with the band as the last index.
+    # grid_b64 = 64-bit floating point 3D-grid with the band as the last index.
+    # grid_ux32 and grid_uy32 = 32-bit floating point 2D-grids -- one for ux and another for uy.
+    # grid_ux64 and grid_uy64 = 64-bit floating point 2D-grids -- one for ux and another for uy.
+
+    akeyaa_array, \
+    grid_a32, grid_b32, \
+    grid_a64, grid_b64, \
+    grid_ux32, grid_uy32, \
+    grid_ux64, grid_uy64 \
+    = akeyaa.run_akeyaa(
         polygon, xyz, radius=3000, required=25, spacing=1000, base_filename=BASE_FILENAME
     )
 
