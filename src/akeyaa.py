@@ -7,7 +7,7 @@ import statsmodels.api as sm
 import arcpy
 
 
-__version__ = "29 June 2020"
+__version__ = "02 July 2020"
 
 
 # -----------------------------------------------------------------------------
@@ -19,22 +19,18 @@ def run_akeyaa(polygon, welldata, radius, required, spacing, base_filename=None)
     which is passed in as an argument.
 
     The base_filename can (should) include the necessary path information. This
-    means that all of the files created by this function are pout into a single
+    means that all of the files created by this function are put into a single
     common folder (directory).
 
     The feature class files are created by arcpy.da.NumPyArrayToFeatureClass.
-    The associated filenames start with the base_filename, have a suffix "_fc"
-    attached, and end with the ArcGIS-assigned file extension.  These include:
+    The associated filenames start with the base_filename and end with the
+    ArcGIS-assigned file extension.  These include:
 
-        base_filename_fc.cpg
-        base_filename_fc.dbf
-        base_filename_fc.prj
-        base_filename_fc.shp
-        base_filename_fc.shx
-
-    ESRI GridFloat files are created for each of the feature rasters. There are
-    two files created for each feature: an ASCII .hdr file and a binary .flt
-    file.
+        base_filename.cpg
+        base_filename.dbf
+        base_filename.prj
+        base_filename.shp
+        base_filename.shx
 
     Parameters
     ----------
@@ -60,9 +56,8 @@ def run_akeyaa(polygon, welldata, radius, required, spacing, base_filename=None)
         square, so only one `spacing` is needed. spacing >= 1.
 
     base_filename : str, optional
-        Path and filename prefix for the feature class and ESRI GridFloat files.
-        The default is Nonoe. If the base_filename is None then no output files
-        are generated.
+        Path and filename prefix for the feature class files. The default is
+        None. If the base_filename is None then no output files are generated.
 
     Returns
     -------
@@ -71,8 +66,7 @@ def run_akeyaa(polygon, welldata, radius, required, spacing, base_filename=None)
         ("y", np.float),        Northing (NAD 83 UTM zone 15N) [m]
         ("count", np.int),      Number of neighbors [#]
         ("head", np.float),     Local piezometric head [ft]
-        ("ux", np.float),       x-component of flow unit vector [.]
-        ("uy", np.float),       y-component of flow unit vector [.]
+        ("angle", np.float),    angle of flow unit vector [radians]
         ("p10", np.float),      pr(theta within +/- 10 degrees) [.]
         ("grad", np.float),     Magnitude of the head gradient [.]
         ("score", np.float)     Laplacian z-score [.]
@@ -88,27 +82,15 @@ def run_akeyaa(polygon, welldata, radius, required, spacing, base_filename=None)
             "y"         Northing (NAD 83 UTM zone 15N) [m]
             "count"     Number of neighbors [#]
             "head"      Local piezometric head [ft]
-            "ux"        x-component of flow unit vector [.]
-            "uy"        y-component of flow unit vector [.]
+            "angle"     Angle of flow unit vector [radians]
             "p10"       pr(theta within +/- 10 degrees) [.]
             "grad"      Magnitude of the head gradient [.]
             "score"     Laplacian z-score [.]
 
     Notes
     -----
-    *   The feature class and .flt files are created using the NAD 83 UTM
-        zone 15N (EPSG:26915) projected coordinate system. This spatial
-        reference information is encoded in the feature class files, but it is
-        not encoded in the ESRI GridFloat files.
-
-    *   The ESRI GridFloat files use a 32-bit floating point format for the
-        gridded data, not the IEEE 754 format sued throughout python 3. As such,
-        NoDataValues for the ESRI GridFloat files is np.finfo(np.float32).max
-        rather than np.nan.
-
-    *   If we could figure out how to correctly and completely construct, write,
-        and read binary arcpy.Raster files then numerous ESRI GridFloat files
-        would be unnecessary.
+    *   The feature class is created using the NAD 83 UTM zone 15N (EPSG:26915)
+        projected coordinate system.
 
     """
     xgrd, ygrd, output_list, index_list = analyze(polygon, welldata, radius, required, spacing)
@@ -121,114 +103,23 @@ def run_akeyaa(polygon, welldata, radius, required, spacing, base_filename=None)
             ("y", np.float),
             ("count", np.int),
             ("head", np.float),
-            ("ux", np.float),
-            ("uy", np.float),
+            ("angle", np.float),
             ("p10", np.float),
             ("grad", np.float),
             ("score", np.float)
         ]
     )
 
-    # 32-bit floating point 3D-grid with the band as the last index.
-    grid_a32 = np.empty((len(ygrd), len(xgrd), 2), dtype=np.float32)
-    missing = np.finfo(np.float32).max
-    grid_a32[:] = missing
-    for index, output_row in zip(index_list, output_list):
-        grid_a32[index[0], index[1], 0] = output_row[4]
-        grid_a32[index[0], index[1], 1] = output_row[5]
-
-    # 32-bit floating point 3D-grid with the band as the first index.
-    grid_b32 = np.empty((2, len(ygrd), len(xgrd)), dtype=np.float32)
-    missing = np.finfo(np.float32).max
-    grid_b32[:] = missing
-    for index, output_row in zip(index_list, output_list):
-        grid_b32[0, index[0], index[1]] = output_row[4]
-        grid_b32[1, index[0], index[1]] = output_row[5]
-
-    # 64-bit floating point 3D-grid with the band as the last index.
-    grid_a64 = np.empty((len(ygrd), len(xgrd), 2), dtype=np.float)
-    missing = np.nan
-    grid_a64[:] = missing
-    for index, output_row in zip(index_list, output_list):
-        grid_a64[index[0], index[1], 0] = output_row[4]
-        grid_a64[index[0], index[1], 1] = output_row[5]
-
-    # 64-bit floating point 3D-grid with the band as the last index.
-    grid_b64 = np.empty((2, len(ygrd), len(xgrd)), dtype=np.float)
-    missing = np.nan
-    grid_b64[:] = missing
-    for index, output_row in zip(index_list, output_list):
-        grid_b64[0, index[0], index[1]] = output_row[4]
-        grid_b64[1, index[0], index[1]] = output_row[5]
-
-    # 32-bit floating point 2D-grids -- one for ux and another for uy.
-    grid_ux32 = np.empty((len(ygrd), len(xgrd)), dtype=np.float32)
-    grid_uy32 = np.empty((len(ygrd), len(xgrd)), dtype=np.float32)
-    missing = np.finfo(np.float32).max
-    grid_ux32[:] = missing
-    grid_uy32[:] = missing
-    for index, output_row in zip(index_list, output_list):
-        grid_ux32[index[0], index[1]] = output_row[4]
-        grid_uy32[index[0], index[1]] = output_row[5]
-
-    # 64-bit floating point 2D-grids -- one for ux and another for uy.
-    grid_ux64 = np.empty((len(ygrd), len(xgrd)), dtype=np.float)
-    grid_uy64 = np.empty((len(ygrd), len(xgrd)), dtype=np.float)
-    missing = np.nan
-    grid_ux64[:] = missing
-    grid_uy64[:] = missing
-    for index, output_row in zip(index_list, output_list):
-        grid_ux64[index[0], index[1]] = output_row[4]
-        grid_uy64[index[0], index[1]] = output_row[5]
-
-    # ----------------------------------
-    # ONLY IF REQUESTED
-    # ---------------------------------
     if base_filename is not None:
         # Create the feature class output files.
         arcpy.da.NumPyArrayToFeatureClass(
             structured_array,
-            base_filename + "_fc",
+            base_filename,
             ("x", "y"),
             arcpy.SpatialReference(26915)       # NAD 83 UTM zone 15N (EPSG:26915).
         )
 
-        # Create the ESRI GridFloat files for the feature rasters.
-        features = ["count", "head", "ux", "uy", "p10", "grad", "score"]
-
-        grid = np.empty((len(ygrd), len(xgrd)), dtype=np.float32)
-        missing = np.finfo(np.float32).max
-        if sys.byteorder == 'little':
-            byteorder = "LSBFIRST"
-        elif sys.byteorder == 'big':
-            byteorder = "MSBFIRST"
-        else:
-            raise TypeError
-
-        for band, name in enumerate(features):
-            with open(base_filename + "_" + name + ".hdr", "w") as fid:
-                fid.write(f"NCOLS {len(xgrd)} \n")
-                fid.write(f"NROWS {len(ygrd)} \n")
-                fid.write(f"XLLCORNER {min(xgrd)} \n")
-                fid.write(f"YLLCORNER {min(ygrd)} \n")
-                fid.write(f"CELLSIZE {spacing} \n")
-                fid.write(f"NODATA_VALUE {missing} \n")
-                fid.write(f"BYTEORDER {byteorder}")
-
-            grid[:] = missing
-            for index, output_row in zip(index_list, output_list):
-                grid[index[0], index[1]] = output_row[band + 2]
-
-            with open(base_filename + "_" + name + ".flt", "wb") as fid:
-                grid.tofile(fid)
-
-    return (
-        structured_array,
-        grid_a32, grid_b32,
-        grid_a64, grid_b64,
-        grid_ux32, grid_uy32,
-        grid_ux64, grid_uy64
-    )
+    return structured_array
 
 
 # -----------------------------------------------------------------------------
@@ -294,11 +185,8 @@ def analyze(polygon, welldata, radius, required, spacing):
         head : float
             Local piezometric head [ft].
 
-        ux : float
-            x-component of flow direction unit vector [.].
-
-        uy : float
-            y-component of flow direction unit vector [.].
+        angle : float
+            angle of the flow unit vector -- angle from, not angle to [radians]
 
         p10 : float
             pr(theta within +/- 10 degrees) [.].
@@ -333,8 +221,8 @@ def analyze(polygon, welldata, radius, required, spacing):
 
                 if len(xyz) >= required:
                     evp, varp = fit_conic_potential(xytarget, xyz)
-                    head, ux, uy, p10, grad, score = compute_features(evp, varp)
-                    output_list.append((x, y, len(xyz), head, ux, uy, p10, grad, score))
+                    head, angle, p10, grad, score = compute_features(evp, varp)
+                    output_list.append((x, y, len(xyz), head, angle, p10, grad, score))
                     index_list.append((i, j))
 
     return xgrd, ygrd, output_list, index_list
@@ -457,11 +345,8 @@ def compute_features(evp, varp):
     head : float
         Local piezometric head [ft]
 
-    ux : float
-        x-component of flow unit vector [.]
-
-    uy : float
-        y-component of flow unit vector [.]
+    angle : float
+        angle of the flow unit vector -- angle from, not angle to [radians]
 
     p10 : float,
         pr(theta within +/- 10 degrees) [.]
@@ -478,12 +363,9 @@ def compute_features(evp, varp):
     mu = evp[3:5]
     sigma = varp[3:5, 3:5]
 
-    ux = -mu[0] / np.hypot(mu[0], mu[1])
-    uy = -mu[1] / np.hypot(mu[0], mu[1])
-
-    theta = math.atan2(mu[1], mu[0])        # angle <from>, not angle <to>.
-    lowerbound = theta - math.pi / 18.0       # +/- 10 degrees.
-    upperbound = theta + math.pi / 18.0
+    angle = math.atan2(mu[1], mu[0])          # angle <from>, not angle <to>.
+    lowerbound = angle - math.pi / 18.0       # +/- 10 degrees.
+    upperbound = angle + math.pi / 18.0
     p10 = pnormcdf(lowerbound, upperbound, mu, sigma)
 
     grad = np.hypot(mu[0], mu[1])
@@ -492,7 +374,7 @@ def compute_features(evp, varp):
     stdev = 2*math.sqrt(varp[0, 0] + varp[1, 1] + 2*varp[0, 1])
     score = min(max(laplacian/stdev, -3), 3)
 
-    return (head, ux, uy, p10, grad, score)
+    return (head, angle, p10, grad, score)
 
 
 # -----------------------------------------------------------------------------
